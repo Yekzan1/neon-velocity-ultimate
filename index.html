@@ -4,45 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Neon Velocity | Speedrun</title>
-    
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
-    
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="crt-overlay"></div>
-
     <div id="game-container">
         <canvas id="gameCanvas"></canvas>
-        
         <div id="ui-overlay">
-            <div id="hud-top">
-                <div id="score-container">SCORE <span id="score-val">00000</span></div>
-                <div id="high-score-container">BEST <span id="high-score-val">00000</span></div>
-            </div>
-
+            <div id="score-container">SCORE: <span id="score-val">0</span></div>
+            <div id="high-score-container">BEST: <span id="high-score-val">0</span></div>
             <div id="start-screen" class="overlay-screen">
-                <h1 class="glitch" data-text="NEON VELOCITY">NEON VELOCITY</h1>
-                <p class="blink-text">INITIALISER LE SYSTÈME</p>
+                <h1>NEON VELOCITY</h1>
+                <p>Appuyez sur [ESPACE] ou Touchez pour Commencer</p>
                 <div class="controls-hint">
-                    <div class="key">[ESPACE]</div>
-                    <span>ou TAPER L'ÉCRAN</span>
+                    <span>SAUT : ESPACE / CLIC</span>
                 </div>
             </div>
-
             <div id="death-screen" class="overlay-screen hidden">
-                <h2 class="glitch-red" data-text="ÉCHEC CRITIQUE">ÉCHEC CRITIQUE</h2>
-                <div class="final-score-box">
-                    <p>SCORE FINAL</p>
-                    <span id="final-score">0</span>
-                </div>
-                <p class="restart-hint">APPUYEZ SUR [ESPACE] POUR RELANCER</p>
+                <h2>SYSTÈME DÉFAILLANT</h2>
+                <p id="final-score">SCORE: 0</p>
+                <p class="restart-hint">Appuyez sur [ESPACE] pour Redémarrer</p>
             </div>
         </div>
     </div>
-    
-    <script src="main.js" defer></script>
+    <script src="main.js"></script>
 </body>
 </html>
