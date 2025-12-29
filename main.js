@@ -1,55 +1,127 @@
-/* ULTIMATE NEON RUNNER 3D 
-   Powered by Three.js & Post-Processing
+/* NEON ODYSSEY: ULTIMATE GOTY EDITION
+   Engine: Three.js r160
+   Audio: WebAudio API (Procedural)
+   Dev: AI Architect
 */
 
-// Importation dynamique des modules Three.js (via CDN pour fonctionnement immédiat)
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 import { EffectComposer } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/ShaderPass.js';
 
-// --- CONFIGURATION & CONSTANTES ---
+// --- CONFIGURATION ---
 const CONFIG = {
-    gravity: 0.6, // Gravité légèrement ajustée pour la 3D
-    jumpForce: 0.85,
-    speed: 0.8,
-    maxSpeed: 2.2,
-    acceleration: 0.0005,
+    gravity: 0.65,
+    jumpForce: 0.9,
+    baseSpeed: 0.9,
+    maxSpeed: 3.5,
+    acceleration: 0.0003,
     coyoteTime: 150,
     jumpBuffer: 150,
-    laneWidth: 0, // Pour l'instant on reste sur une ligne, extensible plus tard
     colors: {
-        background: 0x050505,
-        player: 0x00ffff,
-        obstacle: 0xff0055,
-        ground: 0x220033,
-        grid: 0xff00ff,
-        bonus: 0xffd700
+        bg: 0x020205,
+        playerDefault: 0x00ffff,
+        playerGold: 0xffd700,
+        playerMatrix: 0x00ff00,
+        obstacle: 0xff0044,
+        coin: 0xffd700,
+        grid: 0x220044,
+        building: 0x110022
     }
 };
 
-// --- DOM ELEMENTS ---
-const scoreVal = document.getElementById('score-val');
-const highScoreVal = document.getElementById('high-score-val');
-const startScreen = document.getElementById('start-screen');
-const deathScreen = document.getElementById('death-screen');
-const finalScore = document.getElementById('final-score');
-// On ignore canvas 2d, three.js va créer son propre canvas ou utiliser l'existant en WebGL
+// --- ETAT DU JEU & SAUVEGARDE ---
+const STATE = {
+    score: 0,
+    coins: parseInt(localStorage.getItem('neon_coins')) || 0,
+    highScore: parseInt(localStorage.getItem('neon_highscore')) || 0,
+    unlockedSkins: JSON.parse(localStorage.getItem('neon_skins')) || ['cyan'],
+    currentSkin: localStorage.getItem('neon_equipped') || 'cyan',
+    isPremium: localStorage.getItem('neon_premium') === 'true',
+    isPlaying: false,
+    speed: CONFIG.baseSpeed
+};
 
-// --- VARIABLES GLOBALES ---
+// --- AUDIO ENGINE (Synthétiseur Procédural) ---
+class SoundManager {
+    constructor() {
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.gain.value = 0.3;
+        this.masterGain.connect(this.ctx.destination);
+    }
+
+    playTone(freq, type, duration, vol = 1) {
+        if(this.ctx.state === 'suspended') this.ctx.resume();
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
+    }
+
+    playJump() {
+        this.playTone(400, 'square', 0.1, 0.5);
+        setTimeout(() => this.playTone(600, 'square', 0.2, 0.5), 50);
+    }
+
+    playCoin() {
+        this.playTone(1200, 'sine', 0.1, 0.3);
+        setTimeout(() => this.playTone(1800, 'sine', 0.3, 0.3), 80);
+    }
+
+    playCrash() {
+        this.playTone(100, 'sawtooth', 0.5, 0.8);
+        this.playTone(50, 'square', 0.8, 0.8);
+    }
+
+    playMusic() {
+        // Musique d'ambiance basique (Drone)
+        if(this.musicOsc) return;
+        this.musicOsc = this.ctx.createOscillator();
+        this.musicOsc.type = 'sawtooth';
+        this.musicOsc.frequency.value = 50; // Basse
+        this.musicGain = this.ctx.createGain();
+        this.musicGain.gain.value = 0.05;
+        
+        // Filtre pour effet étouffé
+        this.filter = this.ctx.createBiquadFilter();
+        this.filter.type = 'lowpass';
+        this.filter.frequency.value = 400;
+
+        this.musicOsc.connect(this.filter);
+        this.filter.connect(this.masterGain);
+        this.musicOsc.start();
+        
+        // Modulation LFO
+        setInterval(() => {
+            if(STATE.isPlaying) {
+                this.filter.frequency.rampToValueAtTime(800 + Math.random()*500, this.ctx.currentTime + 1);
+            } else {
+                this.filter.frequency.rampToValueAtTime(200, this.ctx.currentTime + 1);
+            }
+        }, 2000);
+    }
+}
+const audio = new SoundManager();
+
+// --- VARIABLES 3D ---
 let scene, camera, renderer, composer;
-let player, floor, gridHelper;
+let player, gridHelper, floor;
 let obstacles = [];
+let coins = [];
+let buildings = []; // Ville décorative
 let particles = [];
-let bonuses = [];
-let gameState = 'START';
-let score = 0;
-let highScore = localStorage.getItem('neon_3d_highscore') || 0;
-let runTime = 0;
-let speed = CONFIG.speed;
 
-// Variables Physique
+// Physique
 let velocityY = 0;
 let isGrounded = true;
 let canDoubleJump = true;
@@ -57,367 +129,515 @@ let lastGroundedTime = 0;
 let lastJumpRequestTime = 0;
 let cameraShake = 0;
 
-highScoreVal.textContent = Math.floor(highScore);
+// DOM Cache
+const dom = {
+    score: document.getElementById('score-val'),
+    coins: document.getElementById('coin-val'),
+    highScore: document.getElementById('high-score-val'),
+    startScreen: document.getElementById('start-screen'),
+    deathScreen: document.getElementById('death-screen'),
+    finalScore: document.getElementById('final-score'),
+    finalCoins: document.getElementById('final-coins'),
+    shopModal: document.getElementById('shop-modal'),
+    paymentModal: document.getElementById('payment-modal')
+};
 
-// --- INITIALISATION DU MOTEUR 3D ---
-function initEngine() {
-    const container = document.body;
-    
-    // 1. Scène & Caméra
+// --- INITIALISATION ---
+function init() {
+    // 1. Scene
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(CONFIG.colors.background);
-    scene.fog = new THREE.FogExp2(CONFIG.colors.background, 0.02); // Brouillard pour cacher l'apparition des objets
+    scene.background = new THREE.Color(CONFIG.colors.bg);
+    scene.fog = new THREE.FogExp2(CONFIG.colors.bg, 0.015);
 
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(-8, 5, 8); // Vue de côté/arrière dynamique
-    camera.lookAt(0, 2, 0);
+    // 2. Camera
+    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(-6, 5, 8);
 
-    // 2. Renderer
-    const existingCanvas = document.getElementById('gameCanvas');
-    renderer = new THREE.WebGLRenderer({ 
-        canvas: existingCanvas || undefined, 
-        antialias: false, // Désactivé pour perf, le bloom compense
-        powerPreference: "high-performance"
-    });
+    // 3. Renderer
+    renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    if(!existingCanvas) document.body.appendChild(renderer.domElement);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.domElement.id = 'gameCanvas';
+    document.body.appendChild(renderer.domElement);
 
-    // 3. Lumières
-    const ambientLight = new THREE.AmbientLight(0x404040, 2);
-    scene.add(ambientLight);
-
-    const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+    // 4. Lights
+    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambient);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
     dirLight.position.set(-10, 20, 10);
     dirLight.castShadow = true;
     scene.add(dirLight);
 
-    // 4. Post-Processing (Le secret du look "Game of the Year")
+    // 5. Post-Processing (Bloom + FilmGrain)
     composer = new EffectComposer(renderer);
-    const renderPass = new RenderPass(scene, camera);
-    composer.addPass(renderPass);
+    composer.addPass(new RenderPass(scene, camera));
+    
+    const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+    bloom.strength = 2.0;
+    bloom.radius = 0.5;
+    bloom.threshold = 0.1;
+    composer.addPass(bloom);
 
-    // Bloom (Lueur Néon)
-    const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
-    bloomPass.threshold = 0.1;
-    bloomPass.strength = 2.0; // Intensité du néon
-    bloomPass.radius = 0.5;
-    composer.addPass(bloomPass);
-
-    // 5. Création du Monde
+    // 6. World Generation
     createWorld();
     createPlayer();
 
-    // Event Listeners
-    window.addEventListener('resize', onWindowResize);
-    window.addEventListener('keydown', handleInput);
-    window.addEventListener('touchstart', () => handleInput({code: 'Space'}), {passive: false});
-    window.addEventListener('mousedown', () => handleInput({code: 'Space'}));
+    // 7. Update UI
+    updateCurrencyUI();
+
+    // 8. Events
+    window.addEventListener('resize', onResize);
+    document.addEventListener('keydown', handleInput);
+    document.addEventListener('touchstart', (e) => { 
+        if(e.target.tagName !== 'BUTTON') { e.preventDefault(); handleInput({code:'Space'}); }
+    }, {passive:false});
+
+    // Boutons UI
+    document.getElementById('btn-shop').onclick = openShop;
+    document.getElementById('btn-premium').onclick = openPayment;
+    document.getElementById('btn-menu').onclick = resetToMenu;
+    document.getElementById('confirm-payment').onclick = processPayment;
 
     // Loop
-    requestAnimationFrame(animate);
+    animate();
 }
 
 function createWorld() {
-    // Sol infini (illusion)
-    const geometry = new THREE.PlaneGeometry(200, 200);
-    const material = new THREE.MeshStandardMaterial({ 
-        color: CONFIG.colors.ground, 
+    // Sol Miroir
+    const planeGeo = new THREE.PlaneGeometry(500, 500);
+    const planeMat = new THREE.MeshStandardMaterial({ 
+        color: 0x050011, 
         roughness: 0.1, 
         metalness: 0.8 
     });
-    floor = new THREE.Mesh(geometry, material);
+    floor = new THREE.Mesh(planeGeo, planeMat);
     floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -1; // Juste sous le joueur
+    floor.position.y = -1;
     scene.add(floor);
 
-    // Grille Néon Mouvante
-    gridHelper = new THREE.GridHelper(200, 100, CONFIG.colors.grid, CONFIG.colors.grid);
+    // Grille
+    gridHelper = new THREE.GridHelper(500, 100, CONFIG.colors.grid, 0x000000);
     gridHelper.position.y = -0.9;
     scene.add(gridHelper);
+
+    // Ville Initiale
+    for(let i=0; i<40; i++) {
+        spawnBuilding(Math.random() * 200 - 50);
+    }
+}
+
+function spawnBuilding(zPos) {
+    const height = 10 + Math.random() * 40;
+    const geo = new THREE.BoxGeometry(5 + Math.random()*10, height, 5 + Math.random()*10);
+    const mat = new THREE.MeshStandardMaterial({ 
+        color: CONFIG.colors.building, 
+        emissive: Math.random()>0.8 ? 0x00ff00 : 0x000044, // Fenêtres
+        emissiveIntensity: 0.5 
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    
+    // Positionner sur les côtés (hors piste)
+    const xPos = (Math.random() > 0.5 ? 1 : -1) * (15 + Math.random() * 40);
+    mesh.position.set(xPos, height/2 - 5, zPos);
+    
+    scene.add(mesh);
+    buildings.push(mesh);
 }
 
 function createPlayer() {
-    // Le joueur est un Cube émissif
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshStandardMaterial({ 
-        color: CONFIG.colors.player,
-        emissive: CONFIG.colors.player,
-        emissiveIntensity: 2,
-        roughness: 0.2,
-        metalness: 0.8
-    });
-    player = new THREE.Mesh(geometry, material);
-    player.position.y = 0;
-    player.castShadow = true;
-    scene.add(player);
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    let color = CONFIG.colors.playerDefault;
+    if(STATE.currentSkin === 'gold') color = CONFIG.colors.playerGold;
+    if(STATE.currentSkin === 'matrix') color = CONFIG.colors.playerMatrix;
 
-    // Reset physics
-    resetPlayer();
+    const mat = new THREE.MeshStandardMaterial({ 
+        color: color, 
+        emissive: color, 
+        emissiveIntensity: 2 
+    });
+    player = new THREE.Mesh(geo, mat);
+    scene.add(player);
+    resetPlayerPhysics();
 }
 
-function resetPlayer() {
-    if(!player) return;
+function resetPlayerPhysics() {
     player.position.set(0, 0, 0);
-    player.rotation.set(0, 0, 0);
+    player.rotation.set(0,0,0);
     velocityY = 0;
     isGrounded = true;
-    canDoubleJump = true;
-    score = 0;
-    speed = CONFIG.speed;
+    STATE.speed = CONFIG.baseSpeed;
     
-    // Nettoyage
+    // Clean entities
     obstacles.forEach(o => scene.remove(o.mesh));
     obstacles = [];
-    bonuses.forEach(b => scene.remove(b.mesh));
-    bonuses = [];
-    particles.forEach(p => scene.remove(p.mesh));
-    particles = [];
+    coins.forEach(c => scene.remove(c.mesh));
+    coins = [];
 }
 
-// --- LOGIQUE DU JEU ---
+// --- GAMEPLAY LOGIC ---
 
 function handleInput(e) {
-    if (e.type === 'keydown' && e.code !== 'Space' && e.code !== 'ArrowUp') return;
-
-    if (gameState === 'START' || gameState === 'DEAD') {
+    if (e.code && e.code !== 'Space' && e.code !== 'ArrowUp') return;
+    
+    if (!STATE.isPlaying && dom.startScreen.classList.contains('hidden') === false) {
         startGame();
-    } else if (gameState === 'PLAYING') {
+    } else if (STATE.isPlaying) {
         jump();
+    } else if (!dom.deathScreen.classList.contains('hidden')) {
+        startGame(); // Quick restart
     }
 }
 
 function startGame() {
-    gameState = 'PLAYING';
-    startScreen.classList.add('hidden');
-    deathScreen.classList.add('hidden');
-    resetPlayer();
+    STATE.isPlaying = true;
+    STATE.score = 0;
+    
+    audio.playMusic();
+    dom.startScreen.classList.add('hidden');
+    dom.deathScreen.classList.add('hidden');
+    resetPlayerPhysics();
 }
 
 function jump() {
     const now = Date.now();
-    const canCoyote = (now - lastGroundedTime) < CONFIG.coyoteTime;
-
-    if (isGrounded || canCoyote) {
+    if (isGrounded || (now - lastGroundedTime < CONFIG.coyoteTime)) {
         velocityY = CONFIG.jumpForce;
         isGrounded = false;
         canDoubleJump = true;
-        spawnParticles(player.position, 10, CONFIG.colors.player);
-        cameraShake = 0.5;
+        cameraShake = 0.2;
+        spawnParticles(player.position, 10, player.material.color);
+        audio.playJump();
     } else if (canDoubleJump) {
-        velocityY = CONFIG.jumpForce * 0.9; // Double saut un peu plus faible
+        velocityY = CONFIG.jumpForce * 0.9;
         canDoubleJump = false;
-        spawnParticles(player.position, 15, 0xffffff); // Particules blanches
-        
-        // Effet visuel : Rotation rapide du cube
-        const spinAnim = setInterval(() => {
+        spawnParticles(player.position, 15, 0xffffff);
+        audio.playJump();
+        // Spin effect
+        player.rotation.x = 0;
+        const spin = setInterval(() => {
             player.rotation.x -= 0.4;
-            if(player.rotation.x < -Math.PI * 2) clearInterval(spinAnim);
+            if(player.rotation.x < -6.28) clearInterval(spin);
         }, 16);
     } else {
-        lastJumpRequestTime = now; // Buffer
-    }
-}
-
-function spawnObstacle() {
-    // Création d'obstacle aléatoire
-    const isTall = Math.random() > 0.6;
-    const geometry = new THREE.BoxGeometry(1, isTall ? 3 : 1.2, 1);
-    const material = new THREE.MeshStandardMaterial({ 
-        color: CONFIG.colors.obstacle,
-        emissive: CONFIG.colors.obstacle,
-        emissiveIntensity: 1.5
-    });
-    
-    const mesh = new THREE.Mesh(geometry, material);
-    
-    // Positionnement : Loin devant (Z positif)
-    // Dans ce moteur, le joueur reste à Z=0, le monde avance vers lui (Z négatif)
-    // OU le joueur avance (Z positif). Choisissons: Le joueur avance.
-    
-    const spawnZ = player.position.z + 60 + Math.random() * 20;
-    mesh.position.set(0, isTall ? 1 : 0, spawnZ); 
-    
-    // Type Fly (Obstacle volant)
-    if (!isTall && Math.random() > 0.7) {
-        mesh.position.y = 2.5;
-    }
-
-    scene.add(mesh);
-    obstacles.push({ mesh, passed: false });
-}
-
-function spawnParticles(pos, count, colorHex) {
-    const geom = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-    const mat = new THREE.MeshBasicMaterial({ color: colorHex });
-
-    for(let i=0; i<count; i++) {
-        const mesh = new THREE.Mesh(geom, mat);
-        mesh.position.copy(pos);
-        // Dispersion aléatoire
-        mesh.position.x += (Math.random() - 0.5);
-        mesh.position.y += (Math.random() - 0.5);
-        
-        const vel = new THREE.Vector3(
-            (Math.random() - 0.5) * 0.3,
-            (Math.random() - 0.5) * 0.3 + 0.2, // Tendance vers le haut
-            (Math.random() - 0.5) * 0.3
-        );
-        
-        scene.add(mesh);
-        particles.push({ mesh, vel, life: 1.0 });
+        lastJumpRequestTime = now;
     }
 }
 
 function updatePhysics() {
-    // 1. Gravité & Saut
-    velocityY -= CONFIG.gravity * 0.05; // Ajustement pour 60fps
+    // Gravity
+    velocityY -= CONFIG.gravity * 0.05;
     player.position.y += velocityY;
 
-    // Sol
+    // Ground Collision
     if (player.position.y <= 0) {
         player.position.y = 0;
         velocityY = 0;
         if (!isGrounded) {
             isGrounded = true;
             lastGroundedTime = Date.now();
-            spawnParticles(player.position, 5, CONFIG.colors.player);
-            // Jump Buffer Check
-            if (Date.now() - lastJumpRequestTime < CONFIG.jumpBuffer) {
-                jump();
-            }
+            spawnParticles(player.position, 5, player.material.color);
+            if (Date.now() - lastJumpRequestTime < CONFIG.jumpBuffer) jump();
         }
     } else {
         isGrounded = false;
-        // Légère rotation pendant le saut
-        player.rotation.x -= 0.05;
+        player.rotation.x -= 0.05 * STATE.speed;
     }
 
-    // 2. Mouvement vers l'avant
-    player.position.z += speed;
-    
-    // Accélération progressive
-    if (speed < CONFIG.maxSpeed) speed += CONFIG.acceleration;
+    // Forward Movement
+    STATE.speed = Math.min(CONFIG.maxSpeed, STATE.speed + CONFIG.acceleration);
+    player.position.z += STATE.speed;
 
-    // 3. Caméra Follow (Smooth)
-    // La caméra suit le joueur en Z, mais avec un retard pour l'effet de vitesse
-    const targetZ = player.position.z - 8;
-    const targetY = player.position.y + 4;
-    
+    // Camera Logic
+    const targetZ = player.position.z - 8 - (STATE.speed * 2); // Dynamic Zoom
     camera.position.z += (targetZ - camera.position.z) * 0.1;
-    camera.position.y += (targetY - camera.position.y) * 0.1;
+    camera.position.y += (5 - camera.position.y) * 0.1;
     
     // Camera Shake
-    if (cameraShake > 0) {
-        camera.position.x = -8 + (Math.random() - 0.5) * cameraShake;
-        camera.position.y += (Math.random() - 0.5) * cameraShake;
+    if(cameraShake > 0) {
+        camera.position.x = -6 + (Math.random()-0.5)*cameraShake;
+        camera.position.y += (Math.random()-0.5)*cameraShake;
         cameraShake *= 0.9;
     } else {
-        camera.position.x += (-8 - camera.position.x) * 0.05; // Retour au centre
+        camera.position.x += (-6 - camera.position.x)*0.05;
     }
-    
-    camera.lookAt(player.position.x, player.position.y + 1, player.position.z + 5);
-
-    // 4. Endless World Logic
-    // Déplace le sol et la grille pour qu'ils suivent le joueur
-    floor.position.z = player.position.z;
-    // Astuce pour la grille : on la déplace par pas pour donner l'illusion de mouvement infini
-    const gridSize = 10; // taille d'une case
-    gridHelper.position.z = Math.floor(player.position.z / gridSize) * gridSize;
+    camera.lookAt(0, 1, player.position.z + 10);
 }
 
 function updateEntities() {
-    // Gestion des obstacles
-    // Spawn
-    const lastObs = obstacles[obstacles.length - 1];
-    if (!lastObs || (lastObs.mesh.position.z - player.position.z < 80)) {
-        if(Math.random() > 0.05) spawnObstacle(); // Petite chance de vide
+    // 1. Grid Infinite Loop
+    gridHelper.position.z = Math.floor(player.position.z / 20) * 20;
+
+    // 2. Obstacles Spawning
+    if (obstacles.length < 6) {
+        const zPos = player.position.z + 60 + Math.random() * 40;
+        spawnObstacle(zPos);
     }
 
-    // Collision & Cleanup
-    const playerBox = new THREE.Box3().setFromObject(player);
-    // Réduire un peu la hitbox du joueur pour être gentil (plus fun)
-    playerBox.expandByScalar(-0.2); 
+    // 3. Coins Spawning
+    if (Math.random() < 0.05 && coins.length < 3) {
+        const zPos = player.position.z + 60 + Math.random() * 20;
+        spawnCoin(zPos);
+    }
 
+    // 4. Buildings Spawning
+    const lastBuilding = buildings[buildings.length-1];
+    if(lastBuilding.position.z < player.position.z + 200) {
+        spawnBuilding(lastBuilding.position.z + 20 + Math.random()*20);
+    }
+
+    // 5. Cleanup & Collision
+    const pBox = new THREE.Box3().setFromObject(player);
+    pBox.expandByScalar(-0.2); // Hitbox plus clémente
+
+    // Obstacles Loop
     for (let i = obstacles.length - 1; i >= 0; i--) {
         const obs = obstacles[i];
-        
-        // Cleanup si derrière
         if (obs.mesh.position.z < player.position.z - 10) {
             scene.remove(obs.mesh);
             obstacles.splice(i, 1);
             continue;
         }
-
-        // Collision Check
-        const obsBox = new THREE.Box3().setFromObject(obs.mesh);
-        if (playerBox.intersectsBox(obsBox)) {
-            triggerDeath();
+        if (pBox.intersectsBox(new THREE.Box3().setFromObject(obs.mesh))) {
+            gameOver();
         }
     }
 
-    // Particules
-    for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.life -= 0.02;
-        p.mesh.position.add(p.vel);
-        p.mesh.scale.setScalar(p.life);
+    // Coins Loop
+    for (let i = coins.length - 1; i >= 0; i--) {
+        const coin = coins[i];
+        coin.mesh.rotation.y += 0.05;
+        if (coin.mesh.position.z < player.position.z - 10) {
+            scene.remove(coin.mesh);
+            coins.splice(i, 1);
+            continue;
+        }
+        if (pBox.intersectsBox(new THREE.Box3().setFromObject(coin.mesh))) {
+            collectCoin(coin, i);
+        }
+    }
+
+    // Buildings Cleanup
+    if(buildings.length > 50) {
+        scene.remove(buildings[0]);
+        buildings.shift();
+    }
+}
+
+function spawnObstacle(z) {
+    const isTall = Math.random() > 0.7;
+    const isFly = !isTall && Math.random() > 0.7;
+    const geo = new THREE.BoxGeometry(1, isTall?3:1.2, 1);
+    const mat = new THREE.MeshStandardMaterial({ color: CONFIG.colors.obstacle, emissive: CONFIG.colors.obstacle, emissiveIntensity: 2 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(0, isFly?2.5:(isTall?1.5:0.6), z);
+    scene.add(mesh);
+    obstacles.push({mesh});
+}
+
+function spawnCoin(z) {
+    const geo = new THREE.OctahedronGeometry(0.4);
+    const mat = new THREE.MeshStandardMaterial({ color: CONFIG.colors.coin, emissive: CONFIG.colors.coin, emissiveIntensity: 1 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(0, 1 + Math.sin(z)*0.5, z);
+    scene.add(mesh);
+    coins.push({mesh});
+}
+
+function spawnParticles(pos, count, color) {
+    const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+    const mat = new THREE.MeshBasicMaterial({ color: color });
+    for(let i=0; i<count; i++) {
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.copy(pos);
+        mesh.position.x += (Math.random()-0.5);
+        scene.add(mesh);
+        particles.push({
+            mesh, 
+            vel: new THREE.Vector3((Math.random()-0.5)*0.5, Math.random()*0.5, (Math.random()-0.5)*0.5),
+            life: 1.0
+        });
+    }
+}
+
+function collectCoin(coin, index) {
+    scene.remove(coin.mesh);
+    coins.splice(index, 1);
+    
+    // Logic
+    const gain = STATE.isPremium ? 10 : 1; // Bonus premium
+    STATE.coins += gain;
+    updateCurrencyUI();
+    audio.playCoin();
+    
+    // Visual
+    spawnParticles(player.position, 5, 0xffff00);
+}
+
+// --- GAME STATES ---
+
+function gameOver() {
+    STATE.isPlaying = false;
+    audio.playCrash();
+    cameraShake = 1.5;
+    
+    // Save
+    localStorage.setItem('neon_coins', STATE.coins);
+    if(STATE.score > STATE.highScore) {
+        STATE.highScore = STATE.score;
+        localStorage.setItem('neon_highscore', STATE.highScore);
+    }
+
+    // UI
+    dom.finalScore.textContent = `SCORE: ${Math.floor(STATE.score)}`;
+    dom.finalCoins.textContent = STATE.coins;
+    dom.deathScreen.classList.remove('hidden');
+}
+
+function resetToMenu() {
+    dom.deathScreen.classList.add('hidden');
+    dom.startScreen.classList.remove('hidden');
+    dom.highScore.textContent = STATE.highScore;
+    resetPlayerPhysics();
+}
+
+// --- BOUTIQUE SYSTEM ---
+
+window.openShop = function() {
+    dom.startScreen.classList.add('hidden');
+    dom.shopModal.classList.remove('hidden');
+    updateShopUI();
+}
+
+window.openPayment = function() {
+    dom.startScreen.classList.add('hidden');
+    dom.paymentModal.classList.remove('hidden');
+}
+
+window.buySkin = function(skinName, price) {
+    if (STATE.unlockedSkins.includes(skinName)) {
+        // Equip
+        STATE.currentSkin = skinName;
+        localStorage.setItem('neon_equipped', skinName);
+        updatePlayerSkin();
+        updateShopUI();
+    } else {
+        // Buy
+        if (STATE.coins >= price) {
+            STATE.coins -= price;
+            STATE.unlockedSkins.push(skinName);
+            localStorage.setItem('neon_coins', STATE.coins);
+            localStorage.setItem('neon_skins', JSON.stringify(STATE.unlockedSkins));
+            updateCurrencyUI();
+            updateShopUI();
+            audio.playCoin(); // Success sound
+        } else {
+            alert("PAS ASSEZ DE COINS ! JOUE PLUS !");
+        }
+    }
+}
+
+function updateShopUI() {
+    // Met à jour les boutons (Equip / Owned / Buy)
+    const items = ['cyan', 'gold', 'matrix'];
+    items.forEach(skin => {
+        const btn = document.querySelector(`#skin-${skin} .buy-btn`);
+        if(STATE.unlockedSkins.includes(skin)) {
+            if(STATE.currentSkin === skin) {
+                btn.textContent = "EQUIPPED";
+                btn.className = "buy-btn owned";
+            } else {
+                btn.textContent = "EQUIP";
+                btn.className = "buy-btn";
+            }
+        }
+    });
+}
+
+function updatePlayerSkin() {
+    scene.remove(player);
+    createPlayer();
+}
+
+// --- PAIEMENT SIMULATION ---
+
+window.processPayment = function() {
+    const status = document.getElementById('payment-status');
+    const btn = document.getElementById('confirm-payment');
+    
+    btn.disabled = true;
+    status.textContent = "Connecting to Bank...";
+    status.style.color = "#0ff";
+
+    setTimeout(() => {
+        status.textContent = "Verifying Transaction...";
+    }, 1500);
+
+    setTimeout(() => {
+        status.textContent = "PAYMENT SUCCESSFUL !";
+        status.style.color = "#0f0";
         
-        if (p.life <= 0) {
-            scene.remove(p.mesh);
-            particles.splice(i, 1);
-        }
-    }
+        // Unlock Premium
+        STATE.isPremium = true;
+        localStorage.setItem('neon_premium', 'true');
+        STATE.coins += 5000; // Bonus cash
+        STATE.unlockedSkins.push('gold');
+        localStorage.setItem('neon_skins', JSON.stringify(STATE.unlockedSkins));
+        updateCurrencyUI();
+        
+        audio.playCoin();
+        audio.playCoin();
+        
+        setTimeout(() => {
+            dom.paymentModal.classList.add('hidden');
+            dom.startScreen.classList.remove('hidden');
+            alert("THANK YOU! PREMIUM MODE UNLOCKED.\n+5000 COINS ADDED.");
+        }, 1000);
+    }, 3500);
 }
 
-function triggerDeath() {
-    gameState = 'DEAD';
-    cameraShake = 2.0;
-    
-    // Explosion finale
-    spawnParticles(player.position, 50, CONFIG.colors.player);
-    
-    deathScreen.classList.remove('hidden');
-    finalScore.textContent = `SCORE: ${Math.floor(score)}`;
-    
-    if (score > highScore) {
-        highScore = Math.floor(score);
-        localStorage.setItem('neon_3d_highscore', highScore);
-        highScoreVal.textContent = highScore;
-    }
+function updateCurrencyUI() {
+    dom.coins.textContent = STATE.coins;
+    dom.highScore.textContent = STATE.highScore;
 }
 
-function updateScore() {
-    // Le score est basé sur la distance parcourue
-    score = Math.floor(player.position.z);
-    scoreVal.textContent = score;
-}
+// --- LOOP ---
 
 function animate() {
     requestAnimationFrame(animate);
 
-    if (gameState === 'PLAYING') {
+    if (STATE.isPlaying) {
         updatePhysics();
         updateEntities();
-        updateScore();
+        
+        // Particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            p.life -= 0.03;
+            p.mesh.position.add(p.vel);
+            p.mesh.scale.setScalar(p.life);
+            if(p.life <= 0) { scene.remove(p.mesh); particles.splice(i,1); }
+        }
+
+        // Score
+        STATE.score = player.position.z;
+        dom.score.textContent = Math.floor(STATE.score);
     } else {
-        // Animation Idle dans le menu (rotation caméra autour du joueur)
+        // Idle Animation in Menu
         if(player) {
             player.rotation.y += 0.01;
-            player.rotation.x += 0.01;
+            player.rotation.z = Math.sin(Date.now()*0.001)*0.1;
         }
+        if(floor) floor.position.z = (Date.now() * 0.01) % 20; // Scrolling floor preview
     }
 
-    // Le rendu passe par le Composer (pour le Bloom) au lieu du Renderer direct
     composer.render();
 }
 
-function onWindowResize() {
+function onResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
     composer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// Lancement
-initEngine();
+init();
