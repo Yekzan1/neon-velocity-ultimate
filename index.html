@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Velocity | Speedrun</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui-overlay">
+            <div id="score-container">SCORE: <span id="score-val">0</span></div>
+            <div id="high-score-container">BEST: <span id="high-score-val">0</span></div>
+            <div id="start-screen" class="overlay-screen">
+                <h1>NEON VELOCITY</h1>
+                <p>Appuyez sur [ESPACE] ou Touchez pour Commencer</p>
+                <div class="controls-hint">
+                    <span>SAUT : ESPACE / CLIC</span>
+                </div>
+            </div>
+            <div id="death-screen" class="overlay-screen hidden">
+                <h2>SYSTÈME DÉFAILLANT</h2>
+                <p id="final-score">SCORE: 0</p>
+                <p class="restart-hint">Appuyez sur [ESPACE] pour Redémarrer</p>
+            </div>
+        </div>
+    </div>
+    <script src="main.js"></script>
+</body>
+</html>
