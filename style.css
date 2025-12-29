@@ -1,23 +1,14 @@
-/* --- RESET & BASE --- */
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
     overflow: hidden;
     user-select: none;
-    -webkit-tap-highlight-color: transparent;
 }
 
 body {
     background-color: #050505;
-    /* Création d'une grille rétro en pur CSS */
-    background-image: 
-        linear-gradient(rgba(0, 255, 255, 0.1) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0, 255, 255, 0.1) 1px, transparent 1px);
-    background-size: 40px 40px;
-    background-position: center bottom;
-    
-    font-family: 'Orbitron', sans-serif; /* Police Sci-Fi */
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     color: #fff;
     height: 100vh;
     width: 100vw;
@@ -26,40 +17,22 @@ body {
     align-items: center;
 }
 
-/* --- CONTENEUR JEU --- */
 #game-container {
     position: relative;
     width: 100%;
     height: 100%;
-    /* On garde un aspect ratio agréable sur grand écran */
-    max-width: 100%; 
-    max-height: 100%;
-    background: radial-gradient(circle at center, #1a1a2e 0%, #000000 100%);
-    box-shadow: 0 0 100px rgba(0, 255, 255, 0.05);
+    max-width: 1200px;
+    max-height: 800px;
+    box-shadow: 0 0 50px rgba(0, 255, 255, 0.1);
 }
 
 canvas {
     display: block;
     width: 100%;
     height: 100%;
-    /* Le canvas est transparent pour laisser voir le fond si besoin, ou noir */
-    background-color: rgba(5, 5, 5, 0.8); 
+    background-color: #050505;
 }
 
-/* --- EFFET CRT (Scanlines) --- */
-.crt-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-    background-size: 100% 2px, 3px 100%;
-    pointer-events: none;
-    z-index: 999; /* Par dessus tout */
-}
-
-/* --- UI GLOBALE --- */
 #ui-overlay {
     position: absolute;
     top: 0;
@@ -67,33 +40,20 @@ canvas {
     width: 100%;
     height: 100%;
     pointer-events: none;
-    display: flex;
-    flex-direction: column;
-}
-
-#hud-top {
-    display: flex;
-    justify-content: space-between;
-    padding: 30px;
-    width: 100%;
 }
 
 #score-container, #high-score-container {
-    font-weight: 700;
-    font-size: 20px;
+    position: absolute;
+    top: 20px;
+    font-weight: bold;
+    font-size: 24px;
     letter-spacing: 2px;
+    text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
 }
 
-#score-container { 
-    color: #00ffff; 
-    text-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
-}
-#high-score-container { 
-    color: #ff00ff; 
-    text-shadow: 0 0 10px rgba(255, 0, 255, 0.8);
-}
+#score-container { left: 30px; color: #00ffff; }
+#high-score-container { right: 30px; color: #ff00ff; }
 
-/* --- ÉCRANS (Start / Death) --- */
 .overlay-screen {
     position: absolute;
     top: 0;
@@ -104,141 +64,58 @@ canvas {
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(5px); /* Flou d'arrière plan moderne */
+    background: rgba(5, 5, 5, 0.8);
     pointer-events: auto;
-    transition: opacity 0.4s ease, visibility 0.4s;
+    transition: opacity 0.3s ease;
 }
 
 .hidden {
     opacity: 0;
     pointer-events: none;
-    visibility: hidden;
 }
 
-/* --- TYPOGRAPHIE & TITRES --- */
 h1 {
-    font-size: clamp(40px, 8vw, 90px); /* Taille responsive */
-    margin-bottom: 10px;
-    color: #fff;
-    text-shadow: 2px 2px 0px #00ffff, -2px -2px 0px #ff00ff;
-    letter-spacing: 5px;
-    position: relative;
-    font-weight: 900;
+    font-size: 80px;
+    margin-bottom: 20px;
+    color: #00ffff;
+    text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff;
+    letter-spacing: 10px;
 }
 
 h2 {
-    font-size: clamp(30px, 6vw, 70px);
+    font-size: 60px;
     margin-bottom: 20px;
-    color: #ff0055;
-    text-shadow: 0 0 20px #ff0055, 0 0 40px #ff0055;
-    letter-spacing: 3px;
-    text-transform: uppercase;
+    color: #ff00ff;
+    text-shadow: 0 0 20px #ff00ff;
+    letter-spacing: 5px;
 }
 
 p {
-    font-size: 18px;
-    letter-spacing: 3px;
-    margin-bottom: 30px;
-    color: #ccc;
+    font-size: 20px;
+    letter-spacing: 2px;
+    margin-bottom: 40px;
+    text-transform: uppercase;
 }
 
-/* --- ANIMATION GLITCH --- */
-.glitch {
-    position: relative;
-}
-.glitch::before, .glitch::after {
-    content: attr(data-text);
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.8);
-}
-.glitch::before {
-    left: 2px;
-    text-shadow: -1px 0 #ff00ff;
-    clip: rect(24px, 550px, 90px, 0);
-    animation: glitch-anim-2 3s infinite linear alternate-reverse;
-}
-.glitch::after {
-    left: -2px;
-    text-shadow: -1px 0 #00ffff;
-    clip: rect(85px, 550px, 140px, 0);
-    animation: glitch-anim 2.5s infinite linear alternate-reverse;
-}
-
-/* --- BOUTONS & CONTRÔLES --- */
 .controls-hint {
     margin-top: 20px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
+    padding: 15px 30px;
+    border: 1px solid #00ffff;
+    color: #00ffff;
+    box-shadow: inset 0 0 10px #00ffff;
 }
 
-.key {
-    padding: 10px 20px;
-    border: 2px solid #00ffff;
-    border-radius: 4px;
-    color: #050505;
-    background-color: #00ffff;
-    font-weight: bold;
-    box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
-    animation: pulse-glow 2s infinite;
+@keyframes pulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 1; }
+    100% { opacity: 0.6; }
 }
 
-.final-score-box {
-    border: 1px solid #ff0055;
-    padding: 20px 40px;
-    text-align: center;
-    background: rgba(255, 0, 85, 0.1);
-    margin-bottom: 30px;
-    box-shadow: 0 0 30px rgba(255, 0, 85, 0.2);
+.restart-hint {
+    animation: pulse 1.5s infinite;
 }
 
-#final-score {
-    display: block;
-    font-size: 50px;
-    color: #fff;
-    font-weight: 900;
-    text-shadow: 0 0 10px #fff;
-    margin-top: 10px;
-}
 
-/* --- ANIMATIONS --- */
-.blink-text, .restart-hint {
-    animation: blink 1s step-end infinite;
-}
 
-@keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
-}
 
-@keyframes pulse-glow {
-    0% { transform: scale(1); box-shadow: 0 0 20px rgba(0, 255, 255, 0.5); }
-    50% { transform: scale(1.05); box-shadow: 0 0 40px rgba(0, 255, 255, 0.8); }
-    100% { transform: scale(1); box-shadow: 0 0 20px rgba(0, 255, 255, 0.5); }
-}
 
-@keyframes glitch-anim {
-    0% { clip: rect(12px, 9999px, 86px, 0); transform: skew(0.5deg); }
-    5% { clip: rect(54px, 9999px, 23px, 0); transform: skew(0.5deg); }
-    10% { clip: rect(96px, 9999px, 1px, 0); transform: skew(0.5deg); }
-    15% { clip: rect(4px, 9999px, 140px, 0); transform: skew(0.5deg); }
-    20% { clip: rect(25px, 9999px, 115px, 0); transform: skew(0.5deg); }
-    25% { clip: rect(0px, 0px, 0px, 0); transform: skew(0.5deg); }
-    100% { clip: rect(0px, 0px, 0px, 0); transform: skew(0); }
-}
-
-@keyframes glitch-anim-2 {
-    0% { clip: rect(65px, 9999px, 100px, 0); transform: skew(0.2deg); }
-    5% { clip: rect(32px, 9999px, 5px, 0); transform: skew(0.2deg); }
-    10% { clip: rect(90px, 9999px, 44px, 0); transform: skew(0.2deg); }
-    15% { clip: rect(4px, 9999px, 12px, 0); transform: skew(0.2deg); }
-    20% { clip: rect(10px, 9999px, 100px, 0); transform: skew(0.2deg); }
-    25% { clip: rect(0px, 0px, 0px, 0); transform: skew(0.2deg); }
-    100% { clip: rect(0px, 0px, 0px, 0); transform: skew(0); }
-}
